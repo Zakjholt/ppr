@@ -1,5 +1,4 @@
 import React from 'react';
-import {throttle} from 'lodash';
 
 export default class Editor extends React.Component {
   editor;
@@ -17,29 +16,57 @@ export default class Editor extends React.Component {
   }
 
   bindToChannel = () => {
+    const {roomId} = this.props;
     const ably = new Ably.Realtime('xVLyHw.FF_NXg:PwEmSWcMKGZ-jIJq');
 
     // TODO, bind this to the query param for the channel to be unique
-    this.channel = ably.channels.get('editor:1');
+    this.channel = ably.channels.get(`editor:${roomId}`);
 
     this.channel.subscribe('client-edit', this.handleEditEvent);
   };
 
-  handleEditEvent = throttle(({data}) => {
-    this.editor.setContents(data);
-  }, 2000);
+  handleEditEvent = ({data}) => {
+    const {
+      payload: {fromUser, position, character},
+    } = data;
+
+    if (this.props.userId === fromUser) {
+      return;
+    }
+
+    this.editor.insertText(position, character, 'api');
+  };
 
   broadcastTextChange = (delta, oldDelta, source) => {
-    const contents = this.editor.getContents();
+    if (source === 'api') {
+      return;
+    }
+
+    const {ops} = delta;
+    const [meta, payload] = ops;
+    const position = payload ? meta.retain : 0;
+    const character = payload ? payload.insert : meta.insert;
+    const event = {
+      type: 'insert character',
+      payload: {
+        fromUser: this.props.userId,
+        position,
+        character,
+      },
+    };
 
     try {
-      this.channel.publish('client-edit', contents);
+      this.channel.publish('client-edit', event);
     } catch (err) {
       console.error(err);
     }
   };
 
   render() {
-    return <div className={'editor'} />;
+    return (
+      <div>
+        <div className={'editor'} />
+      </div>
+    );
   }
 }
